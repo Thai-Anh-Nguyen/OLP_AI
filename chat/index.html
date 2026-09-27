@@ -34,6 +34,8 @@
   .msg.user { background: var(--user); border-color: transparent; }
   .msg.error { color: var(--danger); }
   .text { white-space: pre-wrap; }
+  .footnote { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .footnote:empty { display: none; }
   details { margin-bottom: 8px; color: var(--muted); font-size: 13px; }
   details .text { border-left: 3px solid var(--border); padding-left: 10px; margin-top: 6px; }
   .text code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px;
@@ -148,7 +150,9 @@ async function send() {
   thinkingText.className = "text";
   details.appendChild(thinkingText);
   const answerBox = document.createElement("div");
-  box.append(details, answerBox);
+  const footnote = document.createElement("div");
+  footnote.className = "footnote";
+  box.append(details, answerBox, footnote);
   scrollDown();
 
   controller = new AbortController();
@@ -174,6 +178,11 @@ async function send() {
       for (const line of lines) {
         if (!line) continue;
         const chunk = JSON.parse(line);
+        if (chunk.provider !== undefined) {
+          footnote.textContent = chunk.provider + (chunk.skipped.length ? `  (bỏ qua ${chunk.skipped.length} provider lỗi)` : "");
+          footnote.title = chunk.skipped.join("\n");
+          continue;
+        }
         content += chunk.c;
         reasoning += chunk.r;
       }
@@ -210,7 +219,9 @@ function autosize() {
 
 async function loadStatus() {
   const s = await (await fetch("/api/status")).json();
-  $("model").textContent = s.model || "(chưa cấu hình model)";
+  $("model").textContent = s.providers.length ? s.providers[0] : "(chưa cấu hình provider)";
+  $("model").title = "Thứ tự fallback:\n" + s.providers.map((p, i) => `${i + 1}. ${p}`).join("\n");
+  if (s.providers.length > 1) $("model").textContent += `  +${s.providers.length - 1} fallback`;
   if (s.problem) {
     $("status").textContent = s.problem;
     $("status").classList.add("warn");

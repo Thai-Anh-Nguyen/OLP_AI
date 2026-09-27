@@ -21,12 +21,20 @@ python3 server.py
 
 Mở `http://localhost:8000`.
 
-- **Key**: mỗi người một key riêng trong `chat/.env` (đã bị `.gitignore`).
-  Mặc định dùng Cloudflare Workers AI (đúng model `deepseek-r1-distill-qwen-32b`,
-  free 10.000 neurons/ngày, tầm 10-20 câu). Hết quota thì đổi sang OpenRouter
-  free - hướng dẫn nằm trong `.env.example`.
-  - Lấy key Cloudflare: dashboard → AI → Workers AI → Use REST API → Create a
-    Workers AI API Token, copy luôn Account ID ở cùng trang.
+- **Key + fallback**: mỗi người một bộ key riêng trong `chat/.env` (đã bị
+  `.gitignore`). Server thử lần lượt 4 provider free, cái nào hết quota / lỗi thì
+  tự chuyển sang cái kế tiếp. Dưới mỗi câu trả lời có ghi model nào đã trả lời.
+
+  | # | Provider | Model | Quota free |
+  |---|---|---|---|
+  | 1 | Cloudflare | `deepseek-r1-distill-qwen-32b` (đúng model thi) | ~10-20 câu/ngày |
+  | 2 | Groq | `qwen3.8-27b` | 1.000 req/ngày, 8K token/phút |
+  | 3 | OpenRouter | `qwen3.8-27b:free` | 50 req/ngày |
+  | 4 | NVIDIA | `nemotron-3-nano-omni-30b-a3b-reasoning` | ~40 req/phút |
+
+  Cách lấy từng key có ghi ngay trong `.env.example`. Không cần điền đủ cả 4.
+  Groq giới hạn 8K token/phút, nên hội thoại dài hay bị chuyển sang provider
+  sau - bấm "Chat mới" khi đổi chủ đề để đỡ tốn quota.
 - **Khoá LLM theo giờ** (luật Final: chỉ dùng 5 tiếng đầu):
   `CHAT_LOCK_AFTER_HOURS=5 python3 server.py` - bắt đầu đếm từ lúc bật server.
   Không đặt thì không khoá.

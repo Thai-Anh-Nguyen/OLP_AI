@@ -9,6 +9,7 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -27,20 +28,30 @@ def load_env(path: Path) -> None:
         os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
 
 
+def load_providers() -> list[dict]:
+    """LLM_1_*, LLM_2_*, ... theo thứ tự ưu tiên; provider thiếu giá trị hoặc còn giá trị mẫu thì bỏ qua."""
+    providers = []
+    for i in range(1, 10):
+        base = os.environ.get(f"LLM_{i}_BASE_URL", "").rstrip("/")
+        key = os.environ.get(f"LLM_{i}_API_KEY", "")
+        model = os.environ.get(f"LLM_{i}_MODEL", "")
+        if not (base and key and model) or "<ACCOUNT_ID>" in base or key.startswith("your-"):
+            continue
+        name = os.environ.get(f"LLM_{i}_NAME") or urllib.parse.urlparse(base).hostname
+        providers.append({"name": name, "base": base, "key": key, "model": model})
+    return providers
+
+
 load_env(HERE / ".env")
-BASE_URL = os.environ.get("LLM_BASE_URL", "").rstrip("/")
-API_KEY = os.environ.get("LLM_API_KEY", "")
-MODEL = os.environ.get("LLM_MODEL", "")
+PROVIDERS = load_providers()
 PORT = int(os.environ.get("CHAT_PORT", "8000"))
 LOCK_AFTER_HOURS = float(os.environ.get("CHAT_LOCK_AFTER_HOURS") or 0)
 STARTED_AT = time.time()
 
 
 def config_problem() -> str | None:
-    if not BASE_URL or not API_KEY or not MODEL:
-        return "Thiếu LLM_BASE_URL / LLM_API_KEY / LLM_MODEL trong chat/.env"
-    if "<ACCOUNT_ID>" in BASE_URL or API_KEY.startswith("your-"):
-        return "chat/.env vẫn còn giá trị mẫu - điền Account ID và API key thật"
+    if not PROVIDERS:
+        return "Chưa có provider nào được cấu hình trong chat/.env (LLM_1_BASE_URL / LLM_1_API_KEY / LLM_1_MODEL ...)"
     return None
 
 
@@ -71,7 +82,11 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif self.path == "/api/status":
-            self.send_json(200, {"model": MODEL, "problem": config_problem(), "seconds_left": seconds_left()})
+            self.send_json(200, {
+                "providers": [f"{p['name']} · {p['model']}" for p in PROVIDERS],
+                "problem": config_problem(),
+                "seconds_left": seconds_left(),
+            })
         else:
             self.send_error(404)
 
@@ -88,29 +103,36 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         messages = json.loads(self.rfile.read(int(self.headers["Content-Length"])))["messages"]
-        upstream = urllib.request.Request(
-            f"{BASE_URL}/chat/completions",
-            data=json.dumps({"model": MODEL, "messages": messages, "stream": True}).encode(),
-            headers={
-                "Authorization": f"Bearer {API_KEY}",
-                "Content-Type": "application/json",
-                "Accept": "text/event-stream",
-                "User-Agent": "olpai-practice-chat/1.0",
-            },
-        )
-        try:
-            resp = urllib.request.urlopen(upstream, timeout=300)
-        except urllib.error.HTTPError as e:
-            self.send_json(e.code, {"error": f"Provider trả lỗi {e.code}: {e.read().decode(errors='replace')[:1500]}"})
-            return
-        except urllib.error.URLError as e:
-            self.send_json(502, {"error": f"Không kết nối được provider: {e.reason}"})
+        # Thử lần lượt từng provider; lỗi trước khi bắt đầu stream (hết quota, 429, sai key...) -> chuyển provider kế.
+        skipped = []
+        for p in PROVIDERS:
+            upstream = urllib.request.Request(
+                f"{p['base']}/chat/completions",
+                data=json.dumps({"model": p["model"], "messages": messages, "stream": True}).encode(),
+                headers={
+                    "Authorization": f"Bearer {p['key']}",
+                    "Content-Type": "application/json",
+                    "Accept": "text/event-stream",
+                    "User-Agent": "olpai-practice-chat/1.0",
+                },
+            )
+            try:
+                resp = urllib.request.urlopen(upstream, timeout=300)
+                break
+            except urllib.error.HTTPError as e:
+                skipped.append(f"{p['name']}: lỗi {e.code} {e.read().decode(errors='replace')[:300]}")
+            except (urllib.error.URLError, TimeoutError) as e:
+                skipped.append(f"{p['name']}: không kết nối được ({getattr(e, 'reason', e)})")
+        else:
+            self.send_json(502, {"error": "Tất cả provider đều lỗi:\n" + "\n".join(skipped)})
             return
 
         self.send_response(200)
         self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
         self.end_headers()
         try:
+            meta = {"provider": f"{p['name']} · {p['model']}", "skipped": skipped}
+            self.wfile.write((json.dumps(meta, ensure_ascii=False) + "\n").encode())
             with resp:
                 if "json" in resp.headers.get("Content-Type", "") and "stream" not in resp.headers.get("Content-Type", ""):
                     # Provider bỏ qua stream=True và trả nguyên 1 cục JSON.
@@ -138,7 +160,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"Model: {MODEL or '(chưa cấu hình)'}")
+    for i, p in enumerate(PROVIDERS, 1):
+        print(f"  {i}. {p['name']} · {p['model']}")
     if problem := config_problem():
         print(f"CẢNH BÁO: {problem}")
     if LOCK_AFTER_HOURS > 0:
