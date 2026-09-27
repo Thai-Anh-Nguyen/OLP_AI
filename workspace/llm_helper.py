@@ -12,7 +12,7 @@ _client = OpenAI(
     base_url=os.environ["LLM_BASE_URL"],
     api_key=os.environ["LLM_API_KEY"],
 )
-_MODEL = os.environ.get("LLM_MODEL", "deepseek/deepseek-r1-distill-qwen-32b")
+_MODEL = os.environ.get("LLM_MODEL", "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b")
 
 
 def ask(prompt: str, system: str | None = None, **kwargs) -> str:
