@@ -1,0 +1,11 @@
+services:
+  olpai-practice:
+    build: .
+    image: olpai-practice-env:local
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./workspace:/workspace
+    env_file:
+      - .env
+    # Internet vẫn mở (khác với đề thi thật) để gọi LLM online lúc luyện tập.
