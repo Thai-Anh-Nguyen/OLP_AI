@@ -1,103 +1,76 @@
-# Môi trường luyện tập OLP AI - Vòng Sơ loại
+# Bộ công cụ luyện thi OLP AI - Vòng Sơ loại
 
-Giả lập môi trường code của đề thi (Python 3.10 + đúng thư viện Bảng 1, không
-pip/conda khi luyện) cho 3 máy khác kiến trúc (1 LOQ Windows/x86_64, 2 MacBook
-Apple Silicon/arm64) dùng chung một image. Khác với đề thi thật: **Internet vẫn
-mở** để gọi LLM online lúc luyện tập.
+Team train trên Colab/Kaggle (có GPU, giống nền tảng notebook web của BTC). Repo
+này chỉ thêm 2 thứ để luyện sát luật thi:
 
-## Cài đặt 1 lần mỗi máy
+| | Là gì | Chạy ở đâu |
+|---|---|---|
+| `chat/` | Trang chat LLM tối giản: chỉ text, không upload, không tool | Laptop của mỗi người |
+| `exam_guard.py` | Cell khoá notebook theo luật thi | Cell đầu của notebook Colab/Kaggle |
 
-- **LOQ (Windows):** cài Docker Desktop, bật WSL2 backend.
-- **MacBook:** cài Docker Desktop for Mac (bản Apple Silicon).
+## 1. Chat LLM (`chat/`)
 
-## Lần build đầu tiên (chỉ 1 người trong team làm)
-
-```bash
-docker compose build
-docker compose up -d
-```
-
-Mở `http://localhost:8888` trên trình duyệt là vào Jupyter Notebook, giống hệt
-luồng "đăng nhập qua link web" của đề thi.
-
-## Cấu hình LLM hỗ trợ code (khác đề thi thật - đề thi Vòng Sơ loại không có
-mục này, đây là phần team tự thêm cho mục đích luyện tập)
-
-Đề thi thật (Final) có cho dùng LLM offline nội bộ; Vòng Sơ loại thì không đề
-cập gì tới LLM cả. Nhưng luyện tập mà không có ai hỗ trợ hỏi-đáp thì không sát
-thực tế đội hình lúc thi, nên team tự thêm 1 lớp gọi LLM online, xem như "trợ
-lý" tự chọn provider:
+Mô phỏng chatbot của kỳ thi: một tab trình duyệt riêng, tách khỏi notebook, code
+phải copy-paste tay qua lại. Chỉ cần Python 3 có sẵn trên máy, không cài gì thêm.
 
 ```bash
-cp .env.example .env
-# rồi sửa .env: điền LLM_BASE_URL / LLM_API_KEY / LLM_MODEL theo provider bạn
-# có tài khoản (OpenRouter / Together AI / Fireworks / DeepInfra / ... - xem
-# gợi ý ngay trong .env.example). .env đã bị .gitignore, mỗi người giữ key
-# riêng, không commit lên git chung.
+cd chat
+cp .env.example .env      # rồi điền key riêng của bạn - xem hướng dẫn trong file
+python3 server.py
 ```
 
-Trong notebook (`./workspace`), gọi qua helper có sẵn:
+Mở `http://localhost:8000`.
 
-```python
-from llm_helper import ask
-print(ask("Giải thích ngắn gọn XGBoost hoạt động thế nào?"))
-```
+- **Key**: mỗi người một key riêng trong `chat/.env` (đã bị `.gitignore`).
+  Mặc định dùng Cloudflare Workers AI (đúng model `deepseek-r1-distill-qwen-32b`,
+  free 10.000 neurons/ngày, tầm 10-20 câu). Hết quota thì đổi sang OpenRouter
+  free - hướng dẫn nằm trong `.env.example`.
+  - Lấy key Cloudflare: dashboard → AI → Workers AI → Use REST API → Create a
+    Workers AI API Token, copy luôn Account ID ở cùng trang.
+- **Khoá LLM theo giờ** (luật Final: chỉ dùng 5 tiếng đầu):
+  `CHAT_LOCK_AFTER_HOURS=5 python3 server.py` - bắt đầu đếm từ lúc bật server.
+  Không đặt thì không khoá.
+- **Đổi port**: `CHAT_PORT=8080 python3 server.py`.
+- Phần suy nghĩ `<think>` của R1 được thu gọn, bấm để xem. Phần này không gửi
+  lại vào lịch sử hội thoại.
 
-Có sẵn `workspace/00_llm_smoke_test.ipynb` để test nhanh key đã đúng chưa.
-Đổi provider/model chỉ cần sửa `.env`, không đụng code.
+PDF Vòng Sơ loại không nhắc gì tới LLM, nên có thể vòng này không có chatbot.
+Nên luyện cả vài buổi không dùng chat.
 
-## Chốt version chung cho cả 3 máy (làm 1 lần, quan trọng)
+## 2. Exam guard (`exam_guard.py`)
 
-Lần build đầu, mỗi package sẽ tự lấy bản mới nhất tương thích (đúng tinh thần
-"bản ổn định mới nhất tại thời điểm tổ chức" của đề thi). Để cả 3 máy có **y hệt
-version**, người build đầu tiên chạy:
+Colab/Kaggle cài sẵn rất nhiều thứ ngoài Bảng 1 (lightgbm, requests...) và cho
+tải model thoải mái - lúc thi thì không. Guard chặn các thứ đó.
 
-```bash
-docker compose exec olpai-practice pip freeze > requirements.lock.txt
-```
+Cấu trúc notebook luyện tập:
 
-Commit `requirements.lock.txt` vào repo chung. Hai bạn còn lại chỉ cần
-`git pull` rồi `docker compose build` — Dockerfile tự phát hiện file lock và
-build từ đó thay vì resolve lại, nên 3 máy sẽ giống nhau tuyệt đối dù chip khác
-nhau (miễn là có wheel cho từng kiến trúc, xem mục Lưu ý bên dưới).
+1. **Cell setup** (không tính là bài thi): mount Drive / copy dữ liệu, cài các
+   thư viện Bảng 1 mà Colab/Kaggle còn thiếu.
+2. **Cell guard**: dán toàn bộ nội dung `exam_guard.py`. Guard in version các
+   thư viện và in sẵn lệnh `!pip install ...` cho thư viện nào còn thiếu
+   (chép lệnh đó lên cell setup, chạy lại).
+3. **Từ đây là bài làm**, bị giới hạn giống đề thi:
+   - chỉ import được Bảng 1 + thư viện chuẩn của Python;
+   - `!pip`, `%pip`, `conda`, `apt` bị chặn;
+   - không tải được gì từ Internet (`from_pretrained`, `!wget`, `requests`...).
+     Mạng nội bộ vẫn chạy để không làm hỏng Colab.
 
-Muốn cập nhật lại bộ thư viện (vd sau vài tháng): xoá `requirements.lock.txt`,
-build lại từ `requirements.in`, rồi freeze lại.
+Mẹo:
+- **Kaggle**: tắt luôn Internet trong Settings của notebook - giống đề thi
+  nhất. Nhưng khi Internet tắt thì không `pip install` được, nên thư viện Bảng 1
+  nào Kaggle không có sẵn sẽ không dùng được.
+- **Colab**: không tắt được Internet, nên guard là thứ duy nhất chặn tải model.
+- Guard không chặn được mọi cách lách (vd `importlib.import_module`,
+  `subprocess`). Nó để tránh *vô tình* dùng thứ không được phép, không phải để
+  chống gian lận.
+- Cần mở thêm thư viện nào đó thì sửa `EXTRA_ALLOWED`, cần Internet thì đặt
+  `BLOCK_INTERNET = False` ở đầu file.
 
-## Dùng hằng ngày
+## Luật thi cần nhớ khi luyện (Vòng Sơ loại)
 
-```bash
-docker compose up -d      # bật
-docker compose down       # tắt (dữ liệu trong ./workspace vẫn còn)
-```
-
-Notebook lưu trong `./workspace` (bind-mount) nên có thể đồng bộ qua git giữa 3
-máy như code bình thường.
-
-## Lưu ý / các điểm dễ vỡ khi build
-
-- **torch/torchvision**: cài bản CPU-only. Lưu ý: `--index-url` phải đặt thành
-  dòng riêng ở đầu file `requirements.in` (global), viết chung 1 dòng với tên
-  package (`torch --index-url ...`) sẽ KHÔNG có tác dụng — đã test thực tế bị
-  tụt về PyPI mặc định và kéo theo ~2GB gói CUDA/NVIDIA không cần thiết, vì
-  không máy nào trong team cần train nặng cục bộ (GPU thật sự chạy trên nền
-  tảng của BTC lúc thi, máy team chỉ để luyện logic code).
-- **fasttext**: dùng `fasttext-wheel` thay vì `fasttext` gốc (cùng
-  `import fasttext`) vì bản gốc hay lỗi build C++ trên Python 3.10 + compiler
-  mới, nhất là trên arm64 (MacBook).
-- **autoviz**: kéo khá nhiều dependency phụ (hvplot, holoviews...), đôi khi
-  đụng version với pandas/numpy mới. Nếu build lỗi ở bước này, có thể tạm bỏ
-  dòng `autoviz` khỏi `requirements.in`, build phần còn lại trước, thêm lại
-  sau khi kiểm tra riêng.
-- **numpy 2.x**: nếu một thư viện nào báo lỗi không tương thích numpy 2, ghim
-  `numpy<2` trong `requirements.in` rồi build lại.
-- Toàn bộ image là **CPU-only, không có CUDA** — nếu sau này muốn LOQ (có GPU
-  NVIDIA) chạy nặng hơn, làm riêng một Dockerfile biến thể cho máy đó, đừng
-  trộn vào image dùng chung để tránh 2 MacBook build lỗi.
-
-## Quy ước nhóm (không phải giới hạn kỹ thuật)
-
-Image này vẫn có `pip`/`conda` bên trong (cần để build). Việc "không dùng
-pip/conda khi luyện" là quy ước tự giác của team để tập phản xạ giống lúc thi
-thật, không phải khoá cứng — giữ vậy sẽ linh hoạt hơn nếu cần cài thêm gì đó
-để debug môi trường.
+- Giờ 0-5: làm bài trên train + public test. Giờ 6: BTC mới đưa mật khẩu private
+  test để chạy ra file kết quả.
+- Nộp 1 file `.zip` gồm file kết quả (`.csv` / `.pkl`) và file `.ipynb`.
+  Notebook chạy tuần tự từ trên xuống phải ra đúng file kết quả đó -> trước khi
+  nộp luôn "Restart & Run all" để kiểm tra.
+- Có giới hạn số lần nộp, nộp trễ không được chấp nhận.
