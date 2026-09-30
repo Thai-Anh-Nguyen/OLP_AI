@@ -1,0 +1,3 @@
+# Key thật chỉ đặt trong Environment Variables của Vercel, không upload file này.
+.env
+__pycache__/

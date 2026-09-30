@@ -48,6 +48,15 @@
   textarea { flex: 1; resize: none; font: inherit; color: var(--text); background: var(--bg);
              border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; min-height: 44px; max-height: 40vh; }
   .empty { color: var(--muted); text-align: center; margin-top: 20vh; }
+  #login { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+           background: var(--bg); padding: 16px; }
+  #login[hidden] { display: none; }
+  #login form { width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 10px;
+                background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  #login h1 { font-size: 17px; margin: 0 0 4px; }
+  #login input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border);
+                 border-radius: 8px; padding: 9px 12px; }
+  #login .error { color: var(--danger); font-size: 13px; min-height: 1.2em; margin: 0; }
 </style>
 </head>
 <body>
@@ -63,6 +72,14 @@
     <button id="send" class="primary">Gửi</button>
   </div>
 </footer>
+<div id="login" hidden>
+  <form id="login-form">
+    <h1>LLM Chat luyện thi OLP AI</h1>
+    <input id="password" type="password" placeholder="Mật khẩu" autocomplete="current-password" required>
+    <button class="primary" type="submit">Vào chat</button>
+    <p class="error" id="login-error"></p>
+  </form>
+</div>
 <script>
 const $ = (id) => document.getElementById(id);
 let history = [];
@@ -165,7 +182,8 @@ async function send() {
       body: JSON.stringify({ messages: history }),
       signal: controller.signal,
     });
-    if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+    if (res.status === 401) showLogin();
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
@@ -217,8 +235,34 @@ function autosize() {
   t.style.height = t.scrollHeight + 2 + "px"; // +2 cho viền, tránh hiện thanh cuộn thừa
 }
 
+function showLogin() {
+  $("login").hidden = false;
+  $("password").focus();
+}
+
+$("login-form").onsubmit = async (e) => {
+  e.preventDefault();
+  $("login-error").textContent = "";
+  const res = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password: $("password").value }),
+  });
+  if (!res.ok) {
+    $("login-error").textContent = (await res.json().catch(() => ({}))).error || res.statusText;
+    return;
+  }
+  $("password").value = "";
+  $("login").hidden = true;
+  await loadStatus();
+  autosize();
+  $("input").focus();
+};
+
 async function loadStatus() {
-  const s = await (await fetch("/api/status")).json();
+  const res = await fetch("/api/status");
+  if (res.status === 401) return showLogin();
+  const s = await res.json();
   $("model").textContent = s.providers.length ? s.providers[0] : "(chưa cấu hình provider)";
   $("model").title = "Thứ tự fallback:\n" + s.providers.map((p, i) => `${i + 1}. ${p}`).join("\n");
   if (s.providers.length > 1) $("model").textContent += `  +${s.providers.length - 1} fallback`;

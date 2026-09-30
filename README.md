@@ -5,7 +5,7 @@ này chỉ thêm 2 thứ để luyện sát luật thi:
 
 | | Là gì | Chạy ở đâu |
 |---|---|---|
-| `chat/` | Trang chat LLM tối giản: chỉ text, không upload, không tool | Laptop của mỗi người |
+| `chat/` | Trang chat LLM tối giản: chỉ text, không upload, không tool | Laptop của mỗi người, hoặc Vercel cho cả team |
 | `exam_guard.py` | Cell khoá notebook theo luật thi | Cell đầu của notebook Colab/Kaggle |
 
 ## 1. Chat LLM (`chat/`)
@@ -36,15 +36,39 @@ Mở `http://localhost:8000`.
   Groq giới hạn 8K token/phút, nên hội thoại dài hay bị chuyển sang provider
   sau - bấm "Chat mới" khi đổi chủ đề để đỡ tốn quota.
 - **Khoá LLM theo giờ** (luật Final: chỉ dùng 5 tiếng đầu):
-  `CHAT_LOCK_AFTER_HOURS=5 python3 server.py` - bắt đầu đếm từ lúc bật server.
+  `CHAT_LOCK_AFTER_HOURS=5 python3 server.py` - bắt đầu đếm từ lúc bật server
+  (nếu có `CHAT_PASSWORD` thì đếm từ lúc mỗi người đăng nhập).
   Không đặt thì không khoá.
 - **Đổi port**: `CHAT_PORT=8080 python3 server.py`.
 - **Độ dài câu trả lời**: mỗi câu tối đa 8192 token, tính cả phần `<think>`
   (đổi bằng `CHAT_MAX_TOKENS`, hoặc riêng từng provider bằng `LLM_n_MAX_TOKENS`).
   Không đặt thì Cloudflare chỉ cho 256 token, R1 bị cắt giữa lúc suy nghĩ. Groq
   để 4096 vì quota 8K token/phút của Groq tính luôn con số này.
+- **Mật khẩu**: đặt `CHAT_PASSWORD` trong `.env` thì phải đăng nhập mới chat được.
 - Phần suy nghĩ `<think>` của R1 được thu gọn, bấm để xem. Phần này không gửi
   lại vào lịch sử hội thoại.
+
+### Host trên Vercel cho cả team dùng chung
+
+Cả team dùng chung một bộ key của người host (credit Cloudflare của người đó).
+Code Vercel nằm trong `chat/api/index.py`, dùng chung logic với `server.py`
+qua `chat/llm.py`, không cần cài thư viện nào.
+
+```bash
+cd chat
+npx vercel login
+npx vercel deploy --prod
+```
+
+Lần đầu `vercel` hỏi thiết lập project: giữ mặc định (thư mục hiện tại là `chat/`).
+Rồi vào dashboard Vercel -> project -> **Settings -> Environment Variables**, dán
+nội dung `chat/.env` (có ô dán cả file) - **nhớ đặt `CHAT_PASSWORD`**, không có
+thì chat tự tắt. Đổi biến xong phải deploy lại (`npx vercel deploy --prod`).
+
+- `chat/.env` không bị upload (`.vercelignore`), key chỉ nằm trong Environment Variables.
+- Gói Hobby (free) cho mỗi câu trả lời tối đa 300 giây - đủ cho R1.
+- Mỗi người đăng nhập 1 lần dùng được 12 tiếng (`CHAT_SESSION_HOURS`).
+  `CHAT_LOCK_AFTER_HOURS` đếm riêng cho từng người từ lúc đăng nhập.
 
 PDF Vòng Sơ loại không nhắc gì tới LLM, nên có thể vòng này không có chatbot.
 Nên luyện cả vài buổi không dùng chat.
