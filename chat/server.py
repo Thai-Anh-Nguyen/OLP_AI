@@ -38,11 +38,14 @@ def load_providers() -> list[dict]:
         if not (base and key and model) or "<ACCOUNT_ID>" in base or key.startswith("your-"):
             continue
         name = os.environ.get(f"LLM_{i}_NAME") or urllib.parse.urlparse(base).hostname
-        providers.append({"name": name, "base": base, "key": key, "model": model})
+        max_tokens = int(os.environ.get(f"LLM_{i}_MAX_TOKENS") or MAX_TOKENS)
+        providers.append({"name": name, "base": base, "key": key, "model": model, "max_tokens": max_tokens})
     return providers
 
 
 load_env(HERE / ".env")
+# Trần số token model được sinh (gồm cả phần <think>). Không gửi thì Cloudflare mặc định 256 -> R1 bị cắt giữa chừng.
+MAX_TOKENS = int(os.environ.get("CHAT_MAX_TOKENS") or 8192)
 PROVIDERS = load_providers()
 PORT = int(os.environ.get("CHAT_PORT", "8000"))
 LOCK_AFTER_HOURS = float(os.environ.get("CHAT_LOCK_AFTER_HOURS") or 0)
@@ -108,7 +111,7 @@ class Handler(BaseHTTPRequestHandler):
         for p in PROVIDERS:
             upstream = urllib.request.Request(
                 f"{p['base']}/chat/completions",
-                data=json.dumps({"model": p["model"], "messages": messages, "stream": True}).encode(),
+                data=json.dumps({"model": p["model"], "messages": messages, "stream": True, "max_tokens": p["max_tokens"]}).encode(),
                 headers={
                     "Authorization": f"Bearer {p['key']}",
                     "Content-Type": "application/json",

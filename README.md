@@ -39,6 +39,10 @@ Mở `http://localhost:8000`.
   `CHAT_LOCK_AFTER_HOURS=5 python3 server.py` - bắt đầu đếm từ lúc bật server.
   Không đặt thì không khoá.
 - **Đổi port**: `CHAT_PORT=8080 python3 server.py`.
+- **Độ dài câu trả lời**: mỗi câu tối đa 8192 token, tính cả phần `<think>`
+  (đổi bằng `CHAT_MAX_TOKENS`, hoặc riêng từng provider bằng `LLM_n_MAX_TOKENS`).
+  Không đặt thì Cloudflare chỉ cho 256 token, R1 bị cắt giữa lúc suy nghĩ. Groq
+  để 4096 vì quota 8K token/phút của Groq tính luôn con số này.
 - Phần suy nghĩ `<think>` của R1 được thu gọn, bấm để xem. Phần này không gửi
   lại vào lịch sử hội thoại.
 
